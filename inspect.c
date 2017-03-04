@@ -16,6 +16,10 @@
 static void check_for_shared_object(Elf64_Ehdr *ehdr);
 static void fail(char *reason, int err_code);
 
+static void inspect_so(Elf64_Ehdr *ehdr);
+static Elf64_Shdr* section_by_name(Elf64_Ehdr *ehdr, char* name);
+static void print_variables_from_function(char* address, Elf64_Ehdr *ehdr);
+
 int main(int argc, char **argv) {
   int fd;
   size_t len;
@@ -46,10 +50,72 @@ int main(int argc, char **argv) {
   check_for_shared_object(ehdr);
 
   /* Add a call to your work here */
+  inspect_so(ehdr);
 
   return 0;
 }
 
+void inspect_so(Elf64_Ehdr *ehdr){
+
+  // Get pointers to the various sections
+  Elf64_Shdr* dynsym_shdr = section_by_name(ehdr, ".dynsym");
+  Elf64_Sym* syms = AT_SEC(ehdr, dynsym_shdr);
+  char* strs = AT_SEC(ehdr, section_by_name(ehdr, ".dynstr"));
+
+  Elf64_Shdr* text_shdr = section_by_name(ehdr, ".text");
+  char* code = AT_SEC(ehdr, text_shdr);
+
+  int i, j;
+  int size = dynsym_shdr->sh_size / dynsym_shdr->sh_entsize;
+  char* address;
+
+  // Output the name of each function provided by a shared library
+  for(i = 0; i < size; i++){
+    if(ELF64_ST_TYPE(syms[i].st_info) == STT_FUNC && syms[i].st_size != 0){
+      printf("%s\n", strs + syms[i].st_name);
+      // For each function, print the variables that appear in it
+      //    address = code + (syms[i].st_value - text_shdr->sh_addr);
+      //  print_variables_from_function(address, ehdr);
+    }
+  }
+
+}
+
+/*
+void print_variables_from_function(char* address, Elf64_Ehdr* ehdr){
+
+  int inFunction = 1;
+  int next, tempInt,jump_target;
+  char* plt = AT_SEC(ehdr, section_by_name(ehdr, ".plt"));
+  while(inFunction){
+    next = *address;
+    if(next == 0xc3)inFunction = 0;
+    if(next == 0xe9)inFunction = 0;
+    if(next == 0xeb)inFunction = 0;
+    if(next == 0x48){
+      address+=3;
+    }
+
+    }
+  }
+  return;
+}*/
+
+Elf64_Shdr* section_by_name(Elf64_Ehdr* ehdr, char* name){
+
+  unsigned int sh_offset = ehdr->e_shoff;
+  Elf64_Shdr* shdrs = (void*)ehdr + sh_offset;
+  unsigned long shstrtab_offset = shdrs[ehdr->e_shstrndx].sh_offset;
+  char* strings = (void*)ehdr + shstrtab_offset;
+
+  int i;
+  for(i = 0; i < ehdr->e_shnum; i++){
+    if(strcmp(strings + shdrs[i].sh_name, name) == 0){
+      return &shdrs[i];
+    }
+  }
+  return NULL;
+}
 static void check_for_shared_object(Elf64_Ehdr *ehdr) {
   if ((ehdr->e_ident[EI_MAG0] != ELFMAG0)
       || (ehdr->e_ident[EI_MAG1] != ELFMAG1)
